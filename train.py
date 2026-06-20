@@ -231,7 +231,7 @@ def save_and_register_model(
     output_model.update_weights(weights_filename=model_path)
 
     task.add_tags([model_type, f"accuracy={accuracy:.4f}"])
-    output_model.add_tags([model_type, "spam-classifier"])
+    output_model.tags = [model_type, "spam-classifier"]
 
     print(f"Model registered in ClearML (id={output_model.id}).")
     return model_path
