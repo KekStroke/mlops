@@ -10,7 +10,6 @@ Usage:
 import argparse
 import glob
 import os
-import sys
 
 import joblib
 import matplotlib.pyplot as plt
@@ -32,6 +31,10 @@ from sklearn.pipeline import Pipeline
 PROJECT_NAME = "Course MLOps"
 MODEL_DIR = "model_output"
 
+CLEARML_OUTPUT_URI = os.getenv(
+    "CLEARML_OUTPUT_URI",
+    "https://192.168.0.105:8081"
+)
 
 # ── argparse ─────────────────────────────────────────────────────────┐
 
@@ -41,30 +44,46 @@ def parse_args() -> argparse.Namespace:
         description="Train spam classifier on ClearML dataset.",
     )
     parser.add_argument(
-        "--dataset_id", type=str, required=True, help="ClearML dataset id",
+        "--dataset_id",
+        type=str,
+        required=True,
+        help="ClearML dataset id",
     )
     parser.add_argument(
-        "--queue", type=str, default="students",
+        "--queue",
+        type=str,
+        default="students",
         help='ClearML queue name for remote execution (default: "students")',
     )
     parser.add_argument(
-        "--model_type", type=str, default="logreg",
-        choices=["logreg", "nb"], help='Classifier type (default: "logreg")',
+        "--model_type",
+        type=str,
+        default="logreg",
+        choices=["logreg", "nb"],
+        help='Classifier type (default: "logreg")',
     )
     parser.add_argument(
-        "--max_features", type=int, default=3000,
+        "--max_features",
+        type=int,
+        default=3000,
         help="Max TF-IDF features (default: 3000)",
     )
     parser.add_argument(
-        "--ngram_max", type=int, default=1,
+        "--ngram_max",
+        type=int,
+        default=1,
         help="Upper bound of n-gram range (default: 1)",
     )
     parser.add_argument(
-        "--test_size", type=float, default=0.2,
+        "--test_size",
+        type=float,
+        default=0.2,
         help="Test set ratio (default: 0.2)",
     )
     parser.add_argument(
-        "--random_state", type=int, default=42,
+        "--random_state",
+        type=int,
+        default=42,
         help="Random state for split (default: 42)",
     )
     return parser.parse_args()
@@ -98,7 +117,9 @@ def load_dataset_from_clearml(dataset_id: str) -> pd.DataFrame:
     df["label"] = df["label"].astype(str)
     df["text"] = df["text"].astype(str)
 
-    print(f"Loaded {len(df)} rows. Label distribution:\n{df['label'].value_counts().to_string()}")
+    print(
+        f"Loaded {len(df)} rows. Label distribution:\n{df['label'].value_counts().to_string()}"
+    )
     return df
 
 
@@ -124,10 +145,12 @@ def build_pipeline(
     else:
         raise ValueError(f"Unknown model_type: {model_type}")
 
-    return Pipeline([
-        ("tfidf", vectorizer),
-        ("clf", classifier),
-    ])
+    return Pipeline(
+        [
+            ("tfidf", vectorizer),
+            ("clf", classifier),
+        ]
+    )
 
 
 # ── train & evaluate ─────────────────────────────────────────────────|
@@ -189,8 +212,14 @@ def log_confusion_matrix_image(
 
     for i in range(cm.shape[0]):
         for j in range(cm.shape[1]):
-            ax.text(j, i, str(cm[i, j]), ha="center", va="center",
-                    color="white" if cm[i, j] > cm.max() / 2 else "black")
+            ax.text(
+                j,
+                i,
+                str(cm[i, j]),
+                ha="center",
+                va="center",
+                color="white" if cm[i, j] > cm.max() / 2 else "black",
+            )
 
     ax.set_ylabel("True label")
     ax.set_xlabel("Predicted label")
@@ -228,7 +257,9 @@ def save_and_register_model(
         framework="scikit-learn",
         name=f"spam_clf_{model_type}",
     )
-    output_model.update_weights(weights_filename=model_path)
+    output_model.update_weights(
+        weights_filename=model_path, upload_uri=CLEARML_OUTPUT_URI
+    )
 
     task.add_tags([model_type, f"accuracy={accuracy:.4f}"])
     output_model.tags = [model_type, "spam-classifier"]
@@ -246,6 +277,9 @@ def main():
     task = Task.init(
         project_name=PROJECT_NAME,
         task_name=f"train_{args.model_type}",
+        task_type=Task.TaskTypes.training,
+        output_uri=CLEARML_OUTPUT_URI,
+        reuse_last_task_id=False,
     )
     task.connect(vars(args))
 
