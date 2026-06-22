@@ -33,7 +33,7 @@ MODEL_DIR = "model_output"
 
 CLEARML_OUTPUT_URI = os.getenv(
     "CLEARML_OUTPUT_URI",
-    "https://192.168.0.105:8081"
+    "http://192.168.0.105:8081"
 )
 
 # ── argparse ─────────────────────────────────────────────────────────┐
