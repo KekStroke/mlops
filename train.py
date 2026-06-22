@@ -31,10 +31,7 @@ from sklearn.pipeline import Pipeline
 PROJECT_NAME = "Course MLOps"
 MODEL_DIR = "model_output"
 
-CLEARML_OUTPUT_URI = os.getenv(
-    "CLEARML_OUTPUT_URI",
-    "http://192.168.0.105:8081"
-)
+CLEARML_OUTPUT_URI = os.getenv("CLEARML_OUTPUT_URI", "http://192.168.0.105:8081")
 
 # ── argparse ─────────────────────────────────────────────────────────┐
 
@@ -244,27 +241,88 @@ def save_and_register_model(
     accuracy: float,
     model_type: str,
 ) -> str:
-    """Dump model to joblib, upload as artifact, register as OutputModel."""
+    """Dump fitted sklearn Pipeline, verify it, upload as artifact and register as OutputModel."""
+    from sklearn.utils.validation import check_is_fitted
+
     os.makedirs(MODEL_DIR, exist_ok=True)
-    model_path = os.path.join(MODEL_DIR, "model.joblib")
+    model_path = os.path.join(MODEL_DIR, f"spam_clf_{model_type}_pipeline.joblib")
+
+    # 1. Проверяем, что TF-IDF реально обучен ДО сохранения
+    tfidf = pipeline.named_steps["tfidf"]
+    check_is_fitted(tfidf)
+
+    print("TFIDF is fitted before save:")
+    print("  has vocabulary_:", hasattr(tfidf, "vocabulary_"))
+    print("  has idf_:", hasattr(tfidf, "idf_"))
+    print("  vocab size:", len(tfidf.vocabulary_))
+
+    print("Test prediction before save:")
+    print(
+        pipeline.predict(
+            [
+                "Congratulations! You won a free prize, call now",
+                "Hi, are we still meeting tomorrow?",
+            ]
+        )
+    )
+
+    # 2. Сохраняем именно ОБУЧЕННЫЙ Pipeline
     joblib.dump(pipeline, model_path)
     print(f"Model saved to {model_path}")
 
-    task.upload_artifact(name="model_artifact", artifact_object=model_path)
+    # 3. Загружаем обратно и проверяем, что файл не битый
+    loaded_pipeline = joblib.load(model_path)
+    loaded_tfidf = loaded_pipeline.named_steps["tfidf"]
+    check_is_fitted(loaded_tfidf)
 
+    print("TFIDF is fitted after reload:")
+    print("  has vocabulary_:", hasattr(loaded_tfidf, "vocabulary_"))
+    print("  has idf_:", hasattr(loaded_tfidf, "idf_"))
+    print("  vocab size:", len(loaded_tfidf.vocabulary_))
+
+    print("Test prediction after reload:")
+    print(
+        loaded_pipeline.predict(
+            [
+                "Congratulations! You won a free prize, call now",
+                "Hi, are we still meeting tomorrow?",
+            ]
+        )
+    )
+
+    # 4. Загружаем как обычный artifact task'а
+    task.upload_artifact(
+        name="model_artifact",
+        artifact_object=model_path,
+    )
+
+    # 5. Регистрируем именно эту модель в Model Registry
     output_model = OutputModel(
         task=task,
         framework="scikit-learn",
-        name=f"spam_clf_{model_type}",
+        name=f"spam_clf_{model_type}_pipeline",
+        tags=[model_type, "spam-classifier", "pipeline"],
     )
-    output_model.update_weights(
-        weights_filename=model_path, upload_uri=CLEARML_OUTPUT_URI
+
+    uploaded_uri = output_model.update_weights(
+        weights_filename=model_path,
+        upload_uri=CLEARML_OUTPUT_URI,
+        target_filename=f"spam_clf_{model_type}_pipeline.joblib",
+        async_enable=False,
+        auto_delete_file=False,
     )
+
+    output_model.publish()
 
     task.add_tags([model_type, f"accuracy={accuracy:.4f}"])
-    output_model.tags = [model_type, "spam-classifier"]
 
-    print(f"Model registered in ClearML (id={output_model.id}).")
+    print("\nREGISTERED_MODEL_INFO")
+    print("  MODEL_ID:", output_model.id)
+    print("  MODEL_URL:", output_model.url)
+    print("  UPLOADED_URI:", uploaded_uri)
+    print("  CLEARML_OUTPUT_URI:", CLEARML_OUTPUT_URI)
+    print("END_REGISTERED_MODEL_INFO\n")
+
     return model_path
 
 
@@ -280,6 +338,7 @@ def main():
         task_type=Task.TaskTypes.training,
         output_uri=CLEARML_OUTPUT_URI,
         reuse_last_task_id=False,
+        auto_connect_frameworks=False,
     )
     task.connect(vars(args))
 
